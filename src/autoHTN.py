@@ -17,33 +17,68 @@ pyhop.declare_methods ('produce', produce)
 
 def make_method (name, rule):
 	def method (state, ID):
-		# your code here
-		pass
+		results = []
 
+		for task, value in rule.items():
+			if task != 'Produces' and isinstance(value, dict):
+				results.extend(map(lambda item: ('have_enough', ID, item[0], item[1]), reversed(value.items())))
+		results.append(('op_'+name, ID))
+		return results
+	method.__name__ = name
 	return method
 
 def declare_methods (data):
-	# some recipes are faster than others for the same product even though they might require extra tools
-	# sort the recipes so that faster recipes go first
+	recipes = data['Recipes']
 
-	# your code here
-	# hint: call make_method, then declare the method to pyhop using pyhop.declare_methods('foo', m1, m2, ..., mk)	
-	pass			
+	list_info = [('produce_' + list(recipe['Produces'].keys())[0],
+        make_method(recipe_task.replace(' ', '_'), recipe),
+        recipe['Time'])
+        for recipe_task, recipe in recipes.items()]
 
-def make_operator (rule):
-	def operator (state, ID):
-		# your code here
-		pass
-	return operator
+	list_info.sort(key=lambda item: item[2])
 
-def declare_operators (data):
-	# your code here
-	# hint: call make_operator, then declare the operator to pyhop using pyhop.declare_operators(o1, o2, ..., ok)
-	pass
+	for product, method, _ in list_info:
+		pyhop.declare_methods(product, method)
+
+def make_operator(recipe_data):
+    def operator(state, ID):
+        for task, items in recipe_data.items():
+            if task == 'Produces':
+                for item, quantity in items.items():
+                    setattr(state, item, {ID: getattr(state, item)[ID] + quantity})
+            elif task == 'Consumes':
+                for item, quantity in items.items():
+                    if getattr(state, item)[ID] >= quantity:
+                        setattr(state, item, {ID: getattr(state, item)[ID] - quantity})
+                    else:
+                        return False
+            elif task == 'Time':
+                if state.time[ID] >= items:
+                    state.time[ID] -= items
+                else:
+                    return False
+        return state
+
+    return operator
+
+def declare_operators(data):
+    operators_info = []
+
+    for recipe_name, recipe_data in sorted(data['Recipes'].items(), key=lambda item: item[1]["Time"], reverse=True):
+        recipe_name = recipe_name.replace(' ', '_')
+        operator_function = make_operator(recipe_data)
+        operator_time = recipe_data['Time']
+        operator_function.__name__ = 'op_' + recipe_name
+        operators_info.append((operator_function, operator_time))
+
+    operators_info.sort(key=lambda info: info[1])
+
+    for operator_function, _ in operators_info:
+        pyhop.declare_operators(operator_function)
 
 def add_heuristic (data, ID):
 	# prune search branch if heuristic() returns True
-	# do not change parameters to heuristic(), but can add more heuristic functions with the same parameters: 
+	# do not change parameters to heuristic(), but can add more heuristic functions with the same parameters:
 	# e.g. def heuristic2(...); pyhop.add_check(heuristic2)
 	def heuristic (state, curr_task, tasks, plan, depth, calling_stack):
 		# your code here
@@ -90,7 +125,8 @@ if __name__ == '__main__':
 	# pyhop.print_operators()
 	# pyhop.print_methods()
 
-	# Hint: verbose output can take a long time even if the solution is correct; 
+	# Hint: verbose output can take a long time even if the solution is correct;
 	# try verbose=1 if it is taking too long
 	pyhop.pyhop(state, goals, verbose=3)
 	# pyhop.pyhop(state, [('have_enough', 'agent', 'cart', 1),('have_enough', 'agent', 'rail', 20)], verbose=3)
+	# pyhop.pyhop(state, [('have_enough', 'agent', 'stone_pickaxe', 1)], verbose=3)
